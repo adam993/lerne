@@ -229,6 +229,30 @@
     color: var(--text-muted);
   }
 
+  /* "This is too easy" — small, muted, sits below the answer options
+   * so it doesn't compete for attention with the actual choices. */
+  .too-easy-btn {
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+  .too-easy-btn:hover:not(:disabled) {
+    color: var(--primary);
+    background: var(--bg-input);
+  }
+  .too-easy-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
   /* Subtle card-fade for the prompt + options row when a new card is
    * dealt. */
   @media (prefers-reduced-motion: no-preference) {

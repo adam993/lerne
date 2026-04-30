@@ -8,7 +8,9 @@ import phrasesData from '@/data/phrases.json';
 import sentencesData from '@/data/sentences.json';
 import {
   buildCard,
+  bumpDifficulty,
   emptyProgress,
+  LEVEL_COUNT,
   nextEntryIndex,
   recordAnswer,
 } from '@/lib/quiz-engine';
@@ -26,9 +28,14 @@ export interface UseQuiz {
   entries: Entry[];
   progress: ModeProgress;
   card: QuizCard | null;
-  /** True when every entry has been seen and there's nothing in re-queue. */
+  /** True when every entry in the current difficulty has been seen
+   *  and there's nothing in re-queue. */
   exhausted: boolean;
+  /** True when difficulty is below the cap, so a "too easy" bump is
+   *  available. */
+  canBump: boolean;
   answer: (chosenIndex: number) => Promise<{ wasCorrect: boolean }>;
+  bump: () => Promise<void>;
   reset: () => Promise<void>;
 }
 
@@ -50,7 +57,7 @@ export function useQuiz(mode: Mode): UseQuiz {
         if (cancelled) return;
         setProgress(p);
         const idx = nextEntryIndex(p, entries.length);
-        setCard(idx === null ? null : buildCard(entries, idx));
+        setCard(idx === null ? null : buildCard(entries, idx, p.difficulty));
         setLoaded(true);
       })
       .catch((err) => {
@@ -72,21 +79,33 @@ export function useQuiz(mode: Mode): UseQuiz {
       await saveProgress(mode, nextProgress);
 
       const nextIdx = nextEntryIndex(nextProgress, entries.length);
-      setCard(nextIdx === null ? null : buildCard(entries, nextIdx));
+      setCard(
+        nextIdx === null ? null : buildCard(entries, nextIdx, nextProgress.difficulty),
+      );
       return { wasCorrect };
     },
     [card, progress, mode, entries],
   );
+
+  const bump = React.useCallback(async () => {
+    const nextProgress = bumpDifficulty(progress);
+    if (nextProgress === progress) return;
+    setProgress(nextProgress);
+    await saveProgress(mode, nextProgress);
+    const idx = nextEntryIndex(nextProgress, entries.length);
+    setCard(idx === null ? null : buildCard(entries, idx, nextProgress.difficulty));
+  }, [progress, mode, entries]);
 
   const reset = React.useCallback(async () => {
     await resetProgress(mode);
     const fresh = emptyProgress();
     setProgress(fresh);
     const idx = nextEntryIndex(fresh, entries.length);
-    setCard(idx === null ? null : buildCard(entries, idx));
+    setCard(idx === null ? null : buildCard(entries, idx, fresh.difficulty));
   }, [mode, entries]);
 
   const exhausted = loaded && card === null;
+  const canBump = progress.difficulty < LEVEL_COUNT;
 
-  return { loaded, entries, progress, card, exhausted, answer, reset };
+  return { loaded, entries, progress, card, exhausted, canBump, answer, bump, reset };
 }

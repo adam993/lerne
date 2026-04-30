@@ -2,7 +2,16 @@
 // data in / data out. Persistence happens in `storage.ts`; React glue in
 // `hooks/use-quiz.ts`.
 
-import type { Entry, ModeProgress, QuizCard } from '@/types/quiz';
+import type { Difficulty, Entry, ModeProgress, QuizCard } from '@/types/quiz';
+
+/** How many options a quiz card displays. 1 correct + 3 distractors. */
+export const OPTION_COUNT = 4;
+
+/** Number of fresh cards that play before a missed entry is re-queued. */
+const REQUEUE_GAP = 3;
+
+/** How many discrete levels the corpus is bucketed into. */
+export const LEVEL_COUNT = 5;
 
 /** Seeded-ish shuffle. We use Math.random; the quiz UX doesn't need
  *  reproducibility, and bundling a seedable PRNG just for this would be
@@ -19,36 +28,69 @@ export function shuffle<T>(arr: readonly T[]): T[] {
 }
 
 export function emptyProgress(): ModeProgress {
-  return { seen: [], requeue: [], correct: 0, wrong: 0 };
+  return { difficulty: 1, seen: [], requeue: [], correct: 0, wrong: 0 };
 }
 
-/** "How many cards have I been dealt so far?" — useful for both the UI
- *  counter and as the integer position the re-queue logic counts in. */
+/** "How many cards have I been dealt so far at the current level?" —
+ *  drives both the UI counter and the integer position the re-queue
+ *  logic counts in. Resets when difficulty bumps. */
 export function deckPosition(p: ModeProgress): number {
   return p.seen.length;
 }
 
 /**
+ * Bucket an entry index into a difficulty level (1..LEVEL_COUNT).
+ *
+ * The bundled lists are ordered such that earlier entries are
+ * generally easier:
+ *   - words.json  — by SMenigat frequency rank (most-common first).
+ *   - phrases.json — curated topical order, greetings/politeness up
+ *     front, complex situations later.
+ *   - sentences.json — curated, simple introductions first.
+ *
+ * Position-based bucketing is therefore a decent free heuristic for
+ * "difficulty" without having to hand-tag every entry. We split into
+ * `LEVEL_COUNT` equal-sized buckets, with the last bucket absorbing
+ * any remainder.
+ */
+export function levelOfIndex(index: number, totalEntries: number): Difficulty {
+  const bucket = Math.ceil(totalEntries / LEVEL_COUNT);
+  const lvl = Math.floor(index / bucket) + 1;
+  return Math.min(LEVEL_COUNT, Math.max(1, lvl)) as Difficulty;
+}
+
+/** Returns the [startInclusive, endExclusive) index range for a level. */
+export function rangeForLevel(level: Difficulty, totalEntries: number): [number, number] {
+  const bucket = Math.ceil(totalEntries / LEVEL_COUNT);
+  const start = (level - 1) * bucket;
+  const end = level === LEVEL_COUNT ? totalEntries : Math.min(totalEntries, level * bucket);
+  return [start, end];
+}
+
+/**
  * Decide which entry index should be the prompt for the next card.
  *
- * Re-queue first: any card whose `dueAtPosition` is ≤ current position
- * jumps the line. If multiple are due, the one that's been waiting
- * longest (smallest dueAtPosition) wins.
+ * Constrained to the current difficulty tier: only entries whose
+ * position falls within the level's range are eligible. Within that
+ * range:
  *
- * Otherwise: the first unseen entry (lowest index not yet in `seen`).
- * That gives us a deterministic "go through the list in frequency
- * order" walk for first-time cards.
+ * 1. Re-queue first: any card whose `dueAtPosition` is ≤ current
+ *    position jumps the line. If multiple are due, the one waiting
+ *    longest (smallest dueAtPosition) wins.
+ * 2. Otherwise: the first unseen entry in the level's range. That gives
+ *    a deterministic walk through the tier in source order.
  *
- * Returns null only if every entry has been seen and no requeue is
- * pending — at which point the caller should reset the deck.
+ * Returns null when every entry in the level's range has been seen and
+ * no requeue is pending — caller should offer "bump" or "reset".
  */
 export function nextEntryIndex(p: ModeProgress, totalEntries: number): number | null {
+  const [start, end] = rangeForLevel(p.difficulty, totalEntries);
   const pos = deckPosition(p);
 
-  // Check requeue — pick the longest-waiting due card.
   let pickIdx = -1;
   let pickDue = Infinity;
   for (const [idx, due] of p.requeue) {
+    if (idx < start || idx >= end) continue;
     if (due <= pos && due < pickDue) {
       pickIdx = idx;
       pickDue = due;
@@ -57,31 +99,37 @@ export function nextEntryIndex(p: ModeProgress, totalEntries: number): number | 
   if (pickIdx !== -1) return pickIdx;
 
   const seenSet = new Set(p.seen);
-  for (let i = 0; i < totalEntries; i++) {
+  for (let i = start; i < end; i++) {
     if (!seenSet.has(i)) return i;
   }
   return null;
 }
 
 /**
- * Build a card: pick 4 random distractors whose German word differs from
- * the correct entry's, shuffle correct + distractors, and return the
- * card.
+ * Build a card: pick distractors from the same difficulty tier whose
+ * English translation differs from the correct entry's, shuffle correct
+ * + distractors, return the card.
  *
- * Edge case: if the corpus is tiny (< 5 entries) we fall back to fewer
- * options — but the bundled data is large enough that this never
- * triggers in practice.
+ * Restricting distractors to the same tier keeps the card's overall
+ * difficulty consistent — at level 5, you don't want trivially-easy
+ * distractors that the user can rule out by frequency familiarity.
  */
-export function buildCard(entries: Entry[], correctIndex: number): QuizCard {
+export function buildCard(
+  entries: Entry[],
+  correctIndex: number,
+  difficulty: Difficulty,
+): QuizCard {
   const correct = entries[correctIndex];
   if (!correct) throw new Error(`buildCard: index ${correctIndex} out of range`);
 
-  // Candidate pool = every other entry whose English translation differs
-  // from the correct one. Filtering by English (not just by index) avoids
-  // a card that has two distractors with the same translation as the
-  // correct answer, which would feel broken to the user.
+  const [start, end] = rangeForLevel(difficulty, entries.length);
+
+  // Distractors come from the same tier. We filter out the correct
+  // entry itself and any entry whose English translation collides with
+  // the correct one (a duplicate translation would let the user say
+  // "either works" and feel cheated by a "wrong" verdict).
   const pool: Entry[] = [];
-  for (let i = 0; i < entries.length; i++) {
+  for (let i = start; i < end; i++) {
     if (i === correctIndex) continue;
     const e = entries[i];
     if (!e) continue;
@@ -89,7 +137,7 @@ export function buildCard(entries: Entry[], correctIndex: number): QuizCard {
     pool.push(e);
   }
 
-  const distractorCount = Math.min(4, pool.length);
+  const distractorCount = Math.min(OPTION_COUNT - 1, pool.length);
   const distractors = shuffle(pool).slice(0, distractorCount).map((e) => e.en);
   const optionStrings = shuffle([correct.en, ...distractors]);
   const correctIdx = optionStrings.indexOf(correct.en);
@@ -103,19 +151,14 @@ export function buildCard(entries: Entry[], correctIndex: number): QuizCard {
 }
 
 /**
- * Apply the result of answering a card to a progress state. Returns the
- * new state — caller is responsible for persisting it.
+ * Apply the result of answering a card. Returns the new state — the
+ * caller persists it.
  *
- * - `seen` always grows by one (the card was just dealt, regardless of
- *   right/wrong).
- * - On wrong: schedule a re-queue 3 positions out. We dedup so the same
- *   entry can't be in `requeue` twice.
- * - On correct: drop the entry from `requeue` if it was there (i.e. the
- *   user finally got a previously-missed card right).
- * - `correct` / `wrong` counters tick.
+ * - `seen` always grows by one.
+ * - On wrong: schedule a re-queue REQUEUE_GAP positions out, dedup'd.
+ * - On correct: drop the entry from `requeue` if it was there.
+ * - Counters tick.
  */
-const REQUEUE_GAP = 3;
-
 export function recordAnswer(
   p: ModeProgress,
   entryIndex: number,
@@ -130,9 +173,28 @@ export function recordAnswer(
   }
 
   return {
+    ...p,
     seen: newSeen,
     requeue: newRequeue,
     correct: p.correct + (isCorrect ? 1 : 0),
     wrong: p.wrong + (isCorrect ? 0 : 1),
+  };
+}
+
+/**
+ * Bump the difficulty by one tier. Resets `seen` + `requeue` because
+ * the new tier is a different pool of entries — anything tracked at
+ * the old tier doesn't apply. Counters carry over so the session
+ * stats keep accumulating.
+ *
+ * No-op when already at LEVEL_COUNT.
+ */
+export function bumpDifficulty(p: ModeProgress): ModeProgress {
+  if (p.difficulty >= LEVEL_COUNT) return p;
+  return {
+    ...p,
+    difficulty: (p.difficulty + 1) as Difficulty,
+    seen: [],
+    requeue: [],
   };
 }

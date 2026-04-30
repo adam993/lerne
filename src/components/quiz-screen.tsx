@@ -1,9 +1,10 @@
 import * as React from 'react';
-import { ChevronLeft, RefreshCw } from 'lucide-react';
+import { ChevronLeft, RefreshCw, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { QuizCard } from '@/components/quiz-card';
 import { AnswerButton } from '@/components/answer-button';
 import { useQuiz } from '@/hooks/use-quiz';
+import { LEVEL_COUNT } from '@/lib/quiz-engine';
 import type { Mode } from '@/types/quiz';
 
 interface Props {
@@ -24,7 +25,8 @@ const FEEDBACK_MS_CORRECT = 450;
 const FEEDBACK_MS_WRONG = 1400;
 
 export function QuizScreen({ mode, onBack }: Props) {
-  const { loaded, card, progress, exhausted, answer, reset } = useQuiz(mode);
+  const { loaded, card, progress, exhausted, canBump, answer, bump, reset } =
+    useQuiz(mode);
 
   // Local UI state for the in-flight answer reveal — separate from the
   // engine's progress so we can show the colored flash for a moment
@@ -36,8 +38,8 @@ export function QuizScreen({ mode, onBack }: Props) {
     wasCorrect: boolean;
   } | null>(null);
 
-  // When the active card changes (next card dealt), reset the in-flight
-  // reveal state.
+  // When the active card changes (next card dealt, or difficulty bumped),
+  // reset the in-flight reveal state.
   const cardKey = card?.index ?? -1;
   React.useEffect(() => {
     setChosen(null);
@@ -53,9 +55,6 @@ export function QuizScreen({ mode, onBack }: Props) {
       chosenIndex: optionIdx,
       wasCorrect,
     });
-    // Hold on the feedback for a beat, then advance. The engine
-    // persists progress as part of `answer`, so even if the user
-    // closes the app mid-feedback the result is saved.
     const hold = wasCorrect ? FEEDBACK_MS_CORRECT : FEEDBACK_MS_WRONG;
     await new Promise<void>((r) => setTimeout(r, hold));
     await answer(optionIdx);
@@ -63,6 +62,9 @@ export function QuizScreen({ mode, onBack }: Props) {
 
   const total = progress.correct + progress.wrong;
   const accuracy = total === 0 ? null : Math.round((progress.correct / total) * 100);
+  // Disable the "too easy" button while a card is being revealed so a
+  // mid-feedback tap can't race the answer's persistence.
+  const bumpDisabled = chosen !== null;
 
   return (
     <div className="card-fade mx-auto flex w-full max-w-[var(--content-width)] flex-1 flex-col gap-6 px-4 py-6">
@@ -73,6 +75,8 @@ export function QuizScreen({ mode, onBack }: Props) {
         </Button>
         <div className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{MODE_LABEL[mode]}</span>
+          {' · '}
+          <span title="Difficulty">L{progress.difficulty}/{LEVEL_COUNT}</span>
           {total > 0 && (
             <>
               {' · '}
@@ -99,11 +103,32 @@ export function QuizScreen({ mode, onBack }: Props) {
         </div>
       ) : exhausted || !card ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-          <p className="text-lg font-medium">You&apos;ve seen every card in this mode.</p>
-          <p className="text-muted-foreground">
-            Reset to start over with the full deck.
+          <p className="text-lg font-medium">
+            You&apos;ve seen every card at level {progress.difficulty}.
           </p>
-          <Button onClick={() => void reset()}>Reset deck</Button>
+          {canBump ? (
+            <>
+              <p className="text-muted-foreground">
+                Move up to level {progress.difficulty + 1} or reset and start over.
+              </p>
+              <div className="flex gap-2">
+                <Button onClick={() => void bump()}>
+                  <Sparkles className="size-4" />
+                  Level up
+                </Button>
+                <Button variant="ghost" onClick={() => void reset()}>
+                  Reset
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-muted-foreground">
+                You&apos;ve cleared the hardest tier. Reset to start over.
+              </p>
+              <Button onClick={() => void reset()}>Reset deck</Button>
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -131,6 +156,17 @@ export function QuizScreen({ mode, onBack }: Props) {
               );
             })}
           </div>
+          {canBump && (
+            <button
+              type="button"
+              className="too-easy-btn"
+              onClick={() => void bump()}
+              disabled={bumpDisabled}
+            >
+              <Sparkles className="size-3.5" />
+              This is too easy
+            </button>
+          )}
         </>
       )}
     </div>

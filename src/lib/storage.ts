@@ -11,8 +11,8 @@
 
 import { Preferences } from '@capacitor/preferences';
 import { isNative } from '@/lib/platform';
-import { emptyProgress } from '@/lib/quiz-engine';
-import type { Mode, ModeProgress } from '@/types/quiz';
+import { emptyProgress, LEVEL_COUNT } from '@/lib/quiz-engine';
+import type { Difficulty, Mode, ModeProgress } from '@/types/quiz';
 
 const KEY_PREFIX = 'lerne.progress.';
 const KEY_LAST_MODE = 'lerne.lastMode.v1';
@@ -45,16 +45,20 @@ async function removeRaw(key: string): Promise<void> {
   localStorage.removeItem(key);
 }
 
+function clampDifficulty(n: unknown): Difficulty {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return 1;
+  const clamped = Math.min(LEVEL_COUNT, Math.max(1, Math.round(n)));
+  return clamped as Difficulty;
+}
+
 /** Loads persisted progress for a mode, or a clean empty state if the
- *  user has never played that mode. JSON parsing errors throw — better
- *  to fail loudly than to silently wipe the user's progress. */
+ *  user has never played that mode. Older saves missing the
+ *  `difficulty` field are forward-compat'd to level 1. JSON parsing
+ *  errors throw — better to fail loudly than silently wipe progress. */
 export async function loadProgress(mode: Mode): Promise<ModeProgress> {
   const raw = await readRaw(keyFor(mode));
   if (!raw) return emptyProgress();
-  const parsed = JSON.parse(raw) as ModeProgress;
-  // Minimal shape check — if the saved object is missing required
-  // fields we treat the slot as corrupted and start fresh. We don't
-  // try to migrate; the data is small and not precious.
+  const parsed = JSON.parse(raw) as Partial<ModeProgress>;
   if (
     !Array.isArray(parsed.seen) ||
     !Array.isArray(parsed.requeue) ||
@@ -63,7 +67,13 @@ export async function loadProgress(mode: Mode): Promise<ModeProgress> {
   ) {
     return emptyProgress();
   }
-  return parsed;
+  return {
+    difficulty: clampDifficulty(parsed.difficulty),
+    seen: parsed.seen,
+    requeue: parsed.requeue,
+    correct: parsed.correct,
+    wrong: parsed.wrong,
+  };
 }
 
 export async function saveProgress(mode: Mode, p: ModeProgress): Promise<void> {
