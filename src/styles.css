@@ -1,0 +1,249 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Lerne — clean palette tuned for focus during a quiz. Slate
+ * neutrals, a friendly blue primary, and dedicated success/error tokens
+ * for correct/wrong feedback flashes on cards. shadcn primitives below
+ * derive from these. Hex colors throughout (per project convention). */
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--bg-elevated);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--bg-elevated);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-on);
+  --color-secondary: var(--bg-input);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--bg-input);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--primary-on);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: #ffffff;
+  --color-success: var(--success);
+  --color-success-foreground: #ffffff;
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--primary);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans', sans-serif;
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+:root {
+  /* light slate */
+  --bg: #f8fafc;
+  --bg-elevated: #ffffff;
+  --bg-input: #f1f5f9;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --text: #0f172a;
+  --text-muted: #64748b;
+
+  /* friendly primary blue */
+  --primary: #2563eb;
+  --primary-press: #1d4ed8;
+  --primary-on: #ffffff;
+  --accent: #6366f1;
+
+  /* feedback */
+  --success: #16a34a;
+  --success-bg: #dcfce7;
+  --danger: #dc2626;
+  --danger-bg: #fee2e2;
+
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --shadow-soft: 0 2px 6px rgba(15, 23, 42, 0.05);
+
+  /* Content column cap. Keeps the quiz card centered and readable on
+   * wide desktops without making it look stretched. Tighter than the
+   * previous-project default (540px) so the prompt + 5 options feel
+   * like one focused unit rather than a flat list. */
+  --content-width: 480px;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a;
+    --bg-elevated: #1e293b;
+    --bg-input: #1e293b;
+    --border: #334155;
+    --border-strong: #475569;
+
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+
+    --primary: #3b82f6;
+    --primary-press: #2563eb;
+    --primary-on: #ffffff;
+    --accent: #818cf8;
+
+    --success: #22c55e;
+    --success-bg: #14532d;
+    --danger: #ef4444;
+    --danger-bg: #7f1d1d;
+
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+    --shadow-soft: 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 100vh;
+    overscroll-behavior: contain;
+    overflow-x: hidden;
+  }
+}
+
+@layer components {
+  /* The big German prompt at the top of the quiz screen. Sized to read
+   * clearly on a phone in one glance. */
+  .prompt-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow);
+    padding: 2rem 1.5rem;
+    text-align: center;
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: 1.25;
+    transition: background-color 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+  }
+  .prompt-card[data-feedback='correct'] {
+    background: var(--success-bg);
+    border-color: var(--success);
+  }
+  .prompt-card[data-feedback='wrong'] {
+    background: var(--danger-bg);
+    border-color: var(--danger);
+  }
+  .prompt-card[data-mode='words'] {
+    font-size: clamp(2.25rem, 8vw, 3.25rem);
+  }
+  .prompt-card[data-mode='phrases'] {
+    font-size: clamp(1.5rem, 5vw, 2rem);
+  }
+  .prompt-card[data-mode='sentences'] {
+    font-size: clamp(1.15rem, 3.5vw, 1.5rem);
+    line-height: 1.4;
+  }
+
+  /* One option in the answer list. We toggle [data-state] from the
+   * component on tap to flash the right/wrong feedback color before the
+   * next card slides in. */
+  .answer-option {
+    width: 100%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-soft);
+    padding: 1rem 1.25rem;
+    font-size: 1rem;
+    text-align: left;
+    color: var(--text);
+    transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+  }
+  .answer-option:hover:not(:disabled) {
+    border-color: var(--border-strong);
+  }
+  .answer-option:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .answer-option:disabled {
+    cursor: default;
+  }
+  .answer-option[data-state='correct'] {
+    background: var(--success-bg);
+    border-color: var(--success);
+    color: var(--success);
+    font-weight: 600;
+  }
+  .answer-option[data-state='wrong'] {
+    background: var(--danger-bg);
+    border-color: var(--danger);
+    color: var(--danger);
+    font-weight: 600;
+  }
+  .answer-option[data-state='dimmed'] {
+    opacity: 0.45;
+  }
+
+  /* Mode picker tile. */
+  .mode-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+    padding: 1.5rem 1.25rem;
+    text-align: left;
+    color: var(--text);
+    transition: border-color 0.2s ease, transform 0.1s ease;
+  }
+  .mode-tile:hover {
+    border-color: var(--primary);
+  }
+  .mode-tile:active {
+    transform: translateY(1px);
+  }
+  .mode-tile-title {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+  .mode-tile-meta {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  /* Subtle card-fade for the prompt + options row when a new card is
+   * dealt. */
+  @media (prefers-reduced-motion: no-preference) {
+    .card-fade {
+      animation: card-fade 0.3s ease both;
+    }
+    @keyframes card-fade {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  }
+}

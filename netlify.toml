@@ -1,0 +1,20 @@
+# Netlify config for the web build of Lerne.
+#
+# We don't bundle the Android APK into dist/ — the GitHub Actions workflow
+# (.github/workflows/android-release.yml) builds it and publishes it to
+# the rolling `android-latest` release. The redirect below lets the web
+# UI link to a stable in-domain URL that always serves whatever the
+# latest workflow run produced.
+
+[build]
+  command = "yarn build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[redirects]]
+  from = "/lerne-android.apk"
+  to = "https://github.com/adam993/lerne/releases/download/android-latest/lerne-android-latest.apk"
+  status = 302
+  force = true
